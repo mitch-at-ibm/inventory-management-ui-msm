@@ -13,42 +13,43 @@ import Header from "../pattern-components/Header";
 import "../pattern-components/patterns.scss";
 
 class StockItemList extends Component {
-  title = 'Table List';
-  subtitle = 'This pattern will display and array of model objects in a multi column grid/table.';
-
-  columns = ['Name', 'Address', 'City', 'State', 'ZipCode', 'Country'];
-  formatters = {
-    'ZipCode': function(val) {
-      return val + '-0000';
-    }
-  };
-
-  data = [
-    {
-      Name: "Lin",
-      Address: "123 Main Street",
-      City: "Austin",
-      State: "TX",
-      ZipCode: "12345",
-      Country: "United States"
-    },
-    {
-      Name: "Mak",
-      Address: "45 2nd Street",
-      City: "Austin",
-      State: "TX",
-      ZipCode: "78766",
-      Country: "United States"
-    },
-    {
-      Name: "Joe",
-      Address: "40 Down Street",
-      City: "San Francisco",
-      State: "CA",
-      ZipCode: "90706",
-      Country: "United States"
-    }
-  ];
+    title = 'Stock Items';
+    subtitle = 'This is the current inventory of items';
+    columns = [
+      "name",
+      "description",
+      "stock",
+      "unitPrice",
+      "picture",
+      "manufacturer",
+    ];
+    formatters = {};
+    data = [
+      {
+        "name": "Item 1",
+        "description": "The first item",
+        "stock": 10,
+        "unitPrice": 100.0,
+        "picture": "test",
+        "manufacturer": "unknown",
+      },
+      {
+        "name": "Item 2",
+        "description": "The second item",
+        "stock": 15,
+        "unitPrice": 120.5,
+        "picture": "test1",
+        "manufacturer": "Apple",
+      },
+      {
+        "name": "Item 3",
+        "description": "The third item",
+        "stock": 20,
+        "unitPrice": 75.5,
+        "picture": "test1",
+        "manufacturer": "Sony",
+      }
+    ];
 
   constructor(props) {
     super(props);
