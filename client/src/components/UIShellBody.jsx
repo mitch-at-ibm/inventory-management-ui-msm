@@ -14,6 +14,8 @@ import SearchList from "../pattern-components/SearchList";
 import SearchForm from "../pattern-components/SearchForm";
 import "../pattern-components/patterns.scss";
 
+import StockItemList from "./StockItemList";
+
 class UIShellBody extends Component {
   components = {
     "Display Form": DisplayForm,
@@ -28,9 +30,10 @@ class UIShellBody extends Component {
     "Master Detail": MasterDetail,
     "Create, Read, Update, Delete": CreateReadUpdateDelete,
     "Search List": SearchList,
-    "Search Form": SearchForm
+    "Search Form": SearchForm,
+    "Stock Items": StockItemList
   };
-  defaultComponent = "Display Form";
+  defaultComponent = "Stock Items";
 
   render() {
     const PatternName = this.components[

@@ -38,7 +38,8 @@ class UIShell extends Component {
     "Master Detail",
     "Create, Read, Update, Delete",
     "Search List",
-    "Search Form"
+    "Search Form",
+    "Stock Items",
   ];
 
   constructor(props) {
