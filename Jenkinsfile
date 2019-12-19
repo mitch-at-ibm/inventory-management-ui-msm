@@ -110,17 +110,17 @@ spec:
                     npm test
                 '''
             }
-            stage('Sonar scan') {
-                sh '''#!/bin/bash
+            // stage('Sonar scan') {
+            //     sh '''#!/bin/bash
 
-                if [[ -z "${SONARQUBE_URL}" ]]; then
-                  echo "Skipping Sonar Qube step as Sonar Qube not installed or configured"
-                  exit 0
-                fi
+            //     if [[ -z "${SONARQUBE_URL}" ]]; then
+            //       echo "Skipping Sonar Qube step as Sonar Qube not installed or configured"
+            //       exit 0
+            //     fi
 
-                npm run sonarqube:scan
-                '''
-            }
+            //     npm run sonarqube:scan
+            //     '''
+            // }
         }
         container(name: 'ibmcloud', shell: '/bin/bash') {
 
@@ -206,9 +206,9 @@ spec:
                     PORT='80'
 
                     # sleep for 10 seconds to allow enough time for the server to start
-                    sleep 30
+                    sleep 60
 
-                    if [ $(curl -sL -w "%{http_code}\\n" "http://${INGRESS_HOST}:${PORT}/health" -o /dev/null --connect-timeout 3 --max-time 5 --retry 3 --retry-max-time 30) == "200" ]; then
+                    if [ $(curl -sL -w "%{http_code}\\n" "http://${INGRESS_HOST}:${PORT}/health" -o /dev/null --connect-timeout 3 --max-time 5 --retry 3 --retry-max-time 60) == "200" ]; then
                         echo "Successfully reached health endpoint: http://${INGRESS_HOST}:${PORT}/health"
                     echo "====================================================================="
                         else
