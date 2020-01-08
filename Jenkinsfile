@@ -31,6 +31,26 @@ kind: Pod
 spec:
   serviceAccountName: jenkins
   containers:
+    - name: jdk11
+      image: jenkins/slave:latest-jdk11
+      tty: true
+      command: ["/bin/bash"]
+      workingDir: ${workingDir}
+      envFrom:
+        - configMapRef:
+            name: pactbroker-config
+            optional: true
+        - configMapRef:
+            name: sonarqube-config
+            optional: true
+        - secretRef:
+            name: sonarqube-access
+            optional: true
+      env:
+        - name: HOME
+          value: ${workingDir}
+        - name: SONAR_USER_HOME
+          value: ${workingDir}
     - name: node
       image: node:11-stretch
       tty: true
@@ -65,12 +85,9 @@ spec:
         - secretRef:
             name: artifactory-access
             optional: true
-        - secretRef:
-            name: gitops-cd-secret
-            optional: true
       env:
         - name: CHART_NAME
-          value: template-node-react
+          value: template-java-spring
         - name: CHART_ROOT
           value: chart
         - name: TMP_DIR
@@ -81,6 +98,18 @@ spec:
           value: ${namespace}
         - name: BUILD_NUMBER
           value: ${env.BUILD_NUMBER}
+    - name: trigger-cd
+      image: docker.io/garagecatalyst/ibmcloud-dev:1.0.8
+      tty: true
+      command: ["/bin/bash"]
+      workingDir: ${workingDir}
+      env:
+        - name: HOME
+          value: /home/devops
+      envFrom:
+        - secretRef:
+            name: gitops-cd-secret
+            optional: true
 """
 ) {
     node(buildLabel) {
@@ -88,7 +117,7 @@ spec:
             checkout scm
             stage('Setup') {
                 sh '''#!/bin/bash
-                    # Export project name (lowercase), version, and build number to ./env-config
+                    # Export project name, version, and build number to ./env-config
                     IMAGE_NAME=$(basename -s .git `git config --get remote.origin.url` | tr '[:upper:]' '[:lower:]' | sed "s/_/-/g")
                     echo "IMAGE_NAME=${IMAGE_NAME}" > ./env-config
                     npm run env | grep "^npm_package_version" | sed "s/npm_package_version/IMAGE_VERSION/g" >> ./env-config
@@ -96,18 +125,17 @@ spec:
                     cat ./env-config
                 '''
             }
-            stage('Build') {
-                sh '''#!/bin/bash
-                    npm install
-                    cd client
-                    npm install
-                    cd ..
-                    npm run build
+        }
+        container(name: 'jdk11', shell: '/bin/bash') {
+
+                stage('Build') {
+                sh '''
+                    ./gradlew assemble --no-daemon
                 '''
             }
             stage('Test') {
                 sh '''#!/bin/bash
-                    npm test
+                    ./gradlew testClasses --no-daemon
                 '''
             }
             stage('Sonar scan') {
@@ -118,18 +146,18 @@ spec:
                   exit 0
                 fi
 
-                npm run sonarqube:scan
+                ./gradlew -Dsonar.login=${SONARQUBE_USER} -Dsonar.password=${SONARQUBE_PASSWORD} -Dsonar.host.url=${SONARQUBE_URL} sonarqube
                 '''
             }
         }
         container(name: 'ibmcloud', shell: '/bin/bash') {
-
             stage('Build image') {
                 sh '''#!/bin/bash
                     . ./env-config
 
                     echo -e "=========================================================================================="
                     echo -e "BUILDING CONTAINER IMAGE: ${REGISTRY_URL}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${IMAGE_VERSION}"
+                    set -x
                     ibmcloud cr build -t ${REGISTRY_URL}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${IMAGE_VERSION} .
                     if [[ $? -ne 0 ]]; then
                       exit 1
@@ -144,7 +172,7 @@ spec:
             stage('Deploy to DEV env') {
                 sh '''#!/bin/bash
                     . ./env-config
-
+                    
                     if [[ "${CHART_NAME}" != "${IMAGE_NAME}" ]]; then
                       cp -R "${CHART_ROOT}/${CHART_NAME}" "${CHART_ROOT}/${IMAGE_NAME}"
                       cat "${CHART_ROOT}/${CHART_NAME}/Chart.yaml" | \
@@ -206,9 +234,9 @@ spec:
                     PORT='80'
 
                     # sleep for 10 seconds to allow enough time for the server to start
-                    sleep 60
+                    sleep 90
 
-                    if [ $(curl -sL -w "%{http_code}\\n" "http://${INGRESS_HOST}:${PORT}/health" -o /dev/null --connect-timeout 3 --max-time 5 --retry 3 --retry-max-time 60) == "200" ]; then
+                    if [ $(curl -sL -w "%{http_code}\\n" "http://${INGRESS_HOST}:${PORT}/health" -o /dev/null --connect-timeout 3 --max-time 5 --retry 3 --retry-max-time 90) == "200" ]; then
                         echo "Successfully reached health endpoint: http://${INGRESS_HOST}:${PORT}/health"
                     echo "====================================================================="
                         else
@@ -237,7 +265,6 @@ spec:
                     exit 1
                 fi
 
-                # Check if a Generic Local Repo has been created and retrieve the URL for it
                 export URL=$(curl -u${ARTIFACTORY_USER}:${ARTIFACTORY_PASSWORD} -X GET "${ARTIFACTORY_URL}/artifactory/api/repositories?type=LOCAL" | jq '.[0].url' | tr -d \\")
                 echo ${URL}
 
@@ -274,6 +301,8 @@ spec:
 
             '''
             }
+        }
+        container(name: 'trigger-cd', shell: '/bin/bash') {
             stage('Trigger CD Pipeline') {
                 sh '''#!/bin/bash
                     if [[ -z "${url}" ]]; then
@@ -288,43 +317,36 @@ spec:
                     if [[ -z "${branch}" ]]; then
                         branch="master"
                     fi
-                    
+
                     . ./env-config
-                    
+
                     if [[ -n "${BUILD_NUMBER}" ]]; then
                       IMAGE_BUILD_VERSION="${IMAGE_VERSION}-${BUILD_NUMBER}"
                     fi
-                    
-                    # This email is not used and it not valid, you can ignore but git requires it
+
+                    # This email is not used and is not valid, you can ignore but git requires it
                     git config --global user.email "jenkins@ibmcloud.com"
                     git config --global user.name "Jenkins Pipeline"
-                    
-                    git clone -b ${GITOPS_CD_BRANCH} ${GITOPS_CD_URL} gitops_cd
+
+                    GIT_URL="https://${username}:${password}@${host}/${org}/${repo}"
+
+                    git clone -b ${branch} ${GIT_URL} gitops_cd
                     cd gitops_cd
-                    
+
                     echo "Requirements before update"
                     cat "./${IMAGE_NAME}/requirements.yaml"
-                    
-                    # Read the helm repo
-                    HELM_REPO=$(yq r ./${IMAGE_NAME}/requirements.yaml 'dependencies[0].repository')
-                    
-                    # Write the updated requirements.yaml
-                    echo "dependencies:" > ./requirements.yaml.tmp
-                    echo "  - name: ${IMAGE_NAME}" >> ./requirements.yaml.tmp
-                    echo "    version: ${IMAGE_BUILD_VERSION}" >> ./requirements.yaml.tmp
-                    echo "    repository: ${HELM_REPO}" >> ./requirements.yaml.tmp
-                    
-                    cp ./requirements.yaml.tmp "./${IMAGE_NAME}/requirements.yaml"
-                    
+
+                    npm i -g @garage-catalyst/ibm-garage-cloud-cli
+                    igc yq w ./${IMAGE_NAME}/requirements.yaml "dependencies[?(@.name == '${IMAGE_NAME}')].version" ${IMAGE_BUILD_VERSION} -i
+
                     echo "Requirements after update"
                     cat "./${IMAGE_NAME}/requirements.yaml"
-                    
+
                     git add -u
                     git commit -m "Updates ${IMAGE_NAME} to ${IMAGE_BUILD_VERSION}"
-                    git push
+                    git push -v
                 '''
             }
         }
     }
 }
-
