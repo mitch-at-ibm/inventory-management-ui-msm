@@ -276,11 +276,17 @@ spec:
             }
             stage('Trigger CD Pipeline') {
                 sh '''#!/bin/bash
-                    if [[ -z "${GITOPS_CD_URL}" ]]; then
+                    if [[ -z "${url}" ]]; then
+                        echo "'url' not set. Not triggering CD pipeline"
                         exit 0
                     fi
-                    if [[ -z "${GITOPS_CD_BRANCH}" ]]; then
-                        GITOPS_CD_BRANCH="master"
+                    if [[ -z "${host}" ]]; then
+                        echo "'host' not set. Not triggering CD pipeline"
+                        exit 0
+                    fi
+
+                    if [[ -z "${branch}" ]]; then
+                        branch="master"
                     fi
                     
                     . ./env-config
