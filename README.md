@@ -43,7 +43,7 @@ Use the IBM Garage for Cloud CLI to register the GIT Repo with Jenkins
 ```$bash
 igc register
 ```
-### Building Locally
+### Building the App Locally
 
 To get started building this application locally, you can either run the application natively or use the [IBM Cloud Developer Tools](https://cloud.ibm.com/docs/cli?topic=cloud-cli-getting-started) for containerization and easy deployment to IBM Cloud.
 
