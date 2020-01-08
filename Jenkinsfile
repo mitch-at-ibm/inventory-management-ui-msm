@@ -31,26 +31,6 @@ kind: Pod
 spec:
   serviceAccountName: jenkins
   containers:
-    - name: jdk11
-      image: jenkins/slave:latest-jdk11
-      tty: true
-      command: ["/bin/bash"]
-      workingDir: ${workingDir}
-      envFrom:
-        - configMapRef:
-            name: pactbroker-config
-            optional: true
-        - configMapRef:
-            name: sonarqube-config
-            optional: true
-        - secretRef:
-            name: sonarqube-access
-            optional: true
-      env:
-        - name: HOME
-          value: ${workingDir}
-        - name: SONAR_USER_HOME
-          value: ${workingDir}
     - name: node
       image: node:11-stretch
       tty: true
@@ -85,9 +65,12 @@ spec:
         - secretRef:
             name: artifactory-access
             optional: true
+        - secretRef:
+            name: gitops-cd-secret
+            optional: true
       env:
         - name: CHART_NAME
-          value: template-java-spring
+          value: template-node-react
         - name: CHART_ROOT
           value: chart
         - name: TMP_DIR
@@ -98,18 +81,6 @@ spec:
           value: ${namespace}
         - name: BUILD_NUMBER
           value: ${env.BUILD_NUMBER}
-    - name: trigger-cd
-      image: docker.io/garagecatalyst/ibmcloud-dev:1.0.8
-      tty: true
-      command: ["/bin/bash"]
-      workingDir: ${workingDir}
-      env:
-        - name: HOME
-          value: /home/devops
-      envFrom:
-        - secretRef:
-            name: gitops-cd-secret
-            optional: true
 """
 ) {
     node(buildLabel) {
@@ -117,7 +88,7 @@ spec:
             checkout scm
             stage('Setup') {
                 sh '''#!/bin/bash
-                    # Export project name, version, and build number to ./env-config
+                    # Export project name (lowercase), version, and build number to ./env-config
                     IMAGE_NAME=$(basename -s .git `git config --get remote.origin.url` | tr '[:upper:]' '[:lower:]' | sed "s/_/-/g")
                     echo "IMAGE_NAME=${IMAGE_NAME}" > ./env-config
                     npm run env | grep "^npm_package_version" | sed "s/npm_package_version/IMAGE_VERSION/g" >> ./env-config
@@ -125,17 +96,18 @@ spec:
                     cat ./env-config
                 '''
             }
-        }
-        container(name: 'jdk11', shell: '/bin/bash') {
-
-                stage('Build') {
-                sh '''
-                    ./gradlew assemble --no-daemon
+            stage('Build') {
+                sh '''#!/bin/bash
+                    npm install
+                    cd client
+                    npm install
+                    cd ..
+                    npm run build
                 '''
             }
             stage('Test') {
                 sh '''#!/bin/bash
-                    ./gradlew testClasses --no-daemon
+                    npm test
                 '''
             }
             stage('Sonar scan') {
@@ -146,18 +118,18 @@ spec:
                   exit 0
                 fi
 
-                ./gradlew -Dsonar.login=${SONARQUBE_USER} -Dsonar.password=${SONARQUBE_PASSWORD} -Dsonar.host.url=${SONARQUBE_URL} sonarqube
+                npm run sonarqube:scan
                 '''
             }
         }
         container(name: 'ibmcloud', shell: '/bin/bash') {
+
             stage('Build image') {
                 sh '''#!/bin/bash
                     . ./env-config
 
                     echo -e "=========================================================================================="
                     echo -e "BUILDING CONTAINER IMAGE: ${REGISTRY_URL}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${IMAGE_VERSION}"
-                    set -x
                     ibmcloud cr build -t ${REGISTRY_URL}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}:${IMAGE_VERSION} .
                     if [[ $? -ne 0 ]]; then
                       exit 1
@@ -172,7 +144,7 @@ spec:
             stage('Deploy to DEV env') {
                 sh '''#!/bin/bash
                     . ./env-config
-                    
+
                     if [[ "${CHART_NAME}" != "${IMAGE_NAME}" ]]; then
                       cp -R "${CHART_ROOT}/${CHART_NAME}" "${CHART_ROOT}/${IMAGE_NAME}"
                       cat "${CHART_ROOT}/${CHART_NAME}/Chart.yaml" | \
@@ -234,9 +206,9 @@ spec:
                     PORT='80'
 
                     # sleep for 10 seconds to allow enough time for the server to start
-                    sleep 90
+                    sleep 30
 
-                    if [ $(curl -sL -w "%{http_code}\\n" "http://${INGRESS_HOST}:${PORT}/health" -o /dev/null --connect-timeout 3 --max-time 5 --retry 3 --retry-max-time 90) == "200" ]; then
+                    if [ $(curl -sL -w "%{http_code}\\n" "http://${INGRESS_HOST}:${PORT}/health" -o /dev/null --connect-timeout 3 --max-time 5 --retry 3 --retry-max-time 30) == "200" ]; then
                         echo "Successfully reached health endpoint: http://${INGRESS_HOST}:${PORT}/health"
                     echo "====================================================================="
                         else
@@ -265,6 +237,7 @@ spec:
                     exit 1
                 fi
 
+                # Check if a Generic Local Repo has been created and retrieve the URL for it
                 export URL=$(curl -u${ARTIFACTORY_USER}:${ARTIFACTORY_PASSWORD} -X GET "${ARTIFACTORY_URL}/artifactory/api/repositories?type=LOCAL" | jq '.[0].url' | tr -d \\")
                 echo ${URL}
 
@@ -301,8 +274,6 @@ spec:
 
             '''
             }
-        }
-        container(name: 'trigger-cd', shell: '/bin/bash') {
             stage('Trigger CD Pipeline') {
                 sh '''#!/bin/bash
                     if [[ -z "${url}" ]]; then
